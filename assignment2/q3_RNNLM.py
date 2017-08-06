@@ -28,9 +28,9 @@ class Config(object):
   hidden_size = 100
   num_steps = 10
   # max_epochs = 16
-  max_epochs = 2
-  early_stopping = 2
-  dropout = 0.9
+  max_epochs = 100
+  early_stopping =30
+  dropout = 0.5 # 0.9 let to overfitting
   lr = 0.001
 
 class RNNLM_Model(LanguageModel):
@@ -267,20 +267,22 @@ class RNNLM_Model(LanguageModel):
       h = self.initial_state
       for step, input in enumerate(inputs):
 
+        print "Step:", step
         if step>0:
           scope.reuse_variables()
-        print "Step:", step
-        H = tf.get_variable("hidden_weights", shape=(self.config.hidden_size, self.config.hidden_size),
-                            initializer=tf.random_normal_initializer())
-        I = tf.get_variable('input_weights', shape=(self.config.embed_size, self.config.hidden_size),
-                            initializer=tf.random_normal_initializer())
-        b_1 = tf.get_variable('bias', shape=(self.config.hidden_size,), initializer=tf.constant_initializer(0))
+        else:
+          H = tf.get_variable("hidden_weights", shape=(self.config.hidden_size, self.config.hidden_size),
+                              initializer=tf.random_normal_initializer())
+          I = tf.get_variable('input_weights', shape=(self.config.embed_size, self.config.hidden_size),
+                              initializer=tf.random_normal_initializer())
+          b_1 = tf.get_variable('bias', shape=(self.config.hidden_size,), initializer=tf.constant_initializer(0))
         x = tf.nn.dropout(input, self.dropout_placeholder)
         h = tf.sigmoid(tf.matmul(x,I) + tf.matmul(h,H ) + b_1)
         h = tf.nn.dropout(h, self.dropout_placeholder)
         rnn_outputs.append(h)
       print H.name
 
+    # so as to carry the history of this unrolling to the next unrolling
     self.final_state = rnn_outputs[-1]
 
     ### END YOUR CODE
@@ -304,6 +306,8 @@ class RNNLM_Model(LanguageModel):
               self.labels_placeholder: y,
               self.initial_state: state,
               self.dropout_placeholder: dp}
+
+      #NOTICE here that the final state of this unrolling is being used as the initial state in the next step of unrolling the graph
       loss, state, _ = session.run(
           [self.calculate_loss, self.final_state, train_op], feed_dict=feed)
       total_loss.append(loss)
@@ -388,6 +392,8 @@ def test_RNNLM():
   init = tf.initialize_all_variables()
   saver = tf.train.Saver()
 
+  valid_list = []
+  train_list = []
   with tf.Session() as session:
     best_val_pp = float('inf')
     best_val_epoch = 0
@@ -403,6 +409,8 @@ def test_RNNLM():
       valid_pp = model.run_epoch(session, model.encoded_valid)
       print 'Training perplexity: {}'.format(train_pp)
       print 'Validation perplexity: {}'.format(valid_pp)
+      valid_list.append(valid_pp)
+      train_list.append(train_pp)
       if valid_pp < best_val_pp:
         best_val_pp = valid_pp
         best_val_epoch = epoch
@@ -415,12 +423,23 @@ def test_RNNLM():
     test_pp = model.run_epoch(session, model.encoded_test)
     print '=-=' * 5
     print 'Test perplexity: {}'.format(test_pp)
-    print '=-=' * 5
-    starting_text = 'in palo alto'
-    while starting_text:
-      print ' '.join(generate_sentence(
-          session, gen_model, gen_config, starting_text=starting_text, temp=1.0))
-      starting_text = raw_input('> ')
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(20, 10))
+    plt.plot(valid_list, label='valid perplexity')
+    plt.plot(train_list, label='train perplexity')
+    plt.legend()
+    plt.tight_layout()
+
+    plt.savefig('learning_curve_rnn.png')
+
+    # print '=-=' * 5
+    # starting_text = 'in palo alto'
+    # while starting_text:
+    #   print ' '.join(generate_sentence(
+    #       session, gen_model, gen_config, starting_text=starting_text, temp=1.0))
+    #   starting_text = raw_input('> ')
+
 
 if __name__ == "__main__":
     test_RNNLM()
